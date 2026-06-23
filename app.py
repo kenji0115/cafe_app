@@ -1,15 +1,16 @@
-
 import streamlit as st
 import pandas as pd
 import joblib
 import altair as alt
 
 # モデル読み込み
-pipeline = joblib.load("cafe_pipeline.pkl")
-area_mapping = joblib.load("area_mapping.pkl")
-
-# csv読み込み
-ratio_df = pd.read_csv("cluster_area_ratio.csv",index_col=0)
+try:
+    pipeline = joblib.load("cafe_pipeline.pkl")
+    area_mapping = joblib.load("area_mapping.pkl")
+    ratio_df = pd.read_csv("cluster_area_ratio.csv", index_col=0)
+except FileNotFoundError as e:
+    st.error(f"必要なファイルが見つかりません: {e}")
+    st.stop()
 
 # クラスタ名
 cluster_names = {
@@ -57,6 +58,7 @@ cluster_descriptions = {
     梅田や心斎橋など都心エリアに多く見られる。
     """
 }
+
 # 戦略
 cluster_strategy = {
     0: """
@@ -65,7 +67,6 @@ cluster_strategy = {
     アクセスの良さや回転率だけでなく、
     Wi-Fi環境や決済手段の充実も重要になります。
     """,
-
     1: """
     独自のサービスや商品による差別化を図りやすい業態です。
     動物カフェやスイーツ専門店など、コンセプトを明確に打ち出すことで、
@@ -73,21 +74,18 @@ cluster_strategy = {
     キャッシュレス非対応が多いため、ターゲット層の来店ハードルを
     下げる工夫も検討余地があります。
     """,
-
     2: """
     特定の趣味や嗜好を持つ利用者を対象とした業態です。
     コンセプトや世界観の一貫性が重要であり、
     ターゲット層を明確に設定することが差別化につながると考えられます。
     SNSや口コミによる情報発信も有効です。
     """,
-
     3: """
     地域住民や車利用客を主要ターゲットとする業態です。
     駐車場や居心地の良さを活かし、
     長時間滞在やリピート利用を促す工夫が重要になります。
     ランチ需要との相性も良いと考えられます。
     """,
-
     4: """
     都心部の高需要エリアに適した業態です。
     競合店舗も多いため、席数や利便性だけでなく、
@@ -113,7 +111,7 @@ selected_area = st.selectbox(
 
 capacity = st.slider("席数", 5, 200, 30)
 
-walk_minutes = st.slider("駅から徒歩◯分",1,60,5)
+walk_minutes = st.slider("駅から徒歩◯分", 1, 60, 5)
 
 st.markdown("## 設備")
 
@@ -134,7 +132,7 @@ card_flag_num = 1 if card_flag == "利用可" else 0
 parking_flag = st.radio(
     "駐車場",
     ["なし", "あり"],
-    horizontal=True    
+    horizontal=True
 )
 parking_flag_num = 1 if parking_flag == "あり" else 0
 
@@ -191,19 +189,21 @@ if st.button("診断する"):
         "capacity": capacity,
         "walk_minutes": walk_minutes,
         "area_store_count": area_store_count,
-        
         "wifi_flag": wifi_flag_num,
         "card_flag": card_flag_num,
         "parking_flag": parking_flag_num,
         "non_smoking_score": non_smoking_mapping[non_smoking_score],
         "child_flag": child_flag_num,
-        
         "style_weekday_off": style_weekday_off_num,
         "style_weekend_off": style_weekend_off_num,
         "lunch_flag": lunch_flag_num
     }])
 
-    cluster = pipeline.predict(new_data)[0]
+    try:
+        cluster = pipeline.predict(new_data)[0]
+    except Exception as e:
+        st.error(f"診断中にエラーが発生しました: {e}")
+        st.stop()
 
     st.markdown("## 診断結果")
 
@@ -215,7 +215,11 @@ if st.button("診断する"):
     st.write(cluster_strategy[cluster])
 
     # エリア傾向取得
-    area_ratio = ratio_df.loc[selected_area]
+    try:
+        area_ratio = ratio_df.loc[selected_area]
+    except KeyError:
+        st.warning("選択したエリアのデータが見つかりませんでした。")
+        st.stop()
 
     st.subheader("エリア内店舗タイプ傾向")
 
@@ -225,14 +229,15 @@ if st.button("診断する"):
         cluster_names[int(i)]
         for i in display_ratio.index
     ]
+
     chart_df = pd.DataFrame({
-    "クラスタ": display_ratio.index,
-    "割合": display_ratio.values
+        "クラスタ": display_ratio.index,
+        "割合": display_ratio.values
     })
 
     chart = alt.Chart(chart_df).mark_bar().encode(
-        x=alt.X("割合:Q",axis=alt.Axis(format="%")),
-        y=alt.Y("クラスタ:N",sort="-x")
+        x=alt.X("割合:Q", axis=alt.Axis(format="%")),
+        y=alt.Y("クラスタ:N", sort="-x")
     ).properties(
         height=300
     ).configure_axisY(
@@ -241,10 +246,13 @@ if st.button("診断する"):
 
     st.altair_chart(chart, use_container_width=True)
 
+    try:
+        fit_ratio = area_ratio[str(cluster)]
+    except KeyError:
+        st.warning("該当クラスタの割合データが取得できませんでした。")
+        st.stop()
 
-    fit_ratio = area_ratio[str(cluster)]
-
-    st.metric("同タイプ店舗割合",f"{fit_ratio:.0%}")
+    st.metric("同タイプ店舗割合", f"{fit_ratio:.0%}")
 
     if fit_ratio >= 0.35:
         st.success("このエリアで主流となっている店舗タイプです。")
@@ -262,7 +270,7 @@ if st.button("診断する"):
         エリア内の供給構造との相性も悪くないと考えられます。
         立地やコンセプト次第で競争力を持てる可能性があります。
         """)
-    
+
     elif fit_ratio >= 0.15:
         st.info("このエリアではややマイナーな店舗タイプです。")
         st.write("""
